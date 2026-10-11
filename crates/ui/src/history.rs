@@ -31,6 +31,7 @@ pub struct History<I: HistoryItem> {
     group_interval: Option<Duration>,
     grouping: bool,
     unique: bool,
+    invalidate_redo: bool,
 }
 
 impl<I> History<I>
@@ -48,6 +49,7 @@ where
             group_interval: None,
             grouping: false,
             unique: false,
+            invalidate_redo: false,
         }
     }
 
@@ -61,6 +63,14 @@ where
     /// If set to true, the history will only keep unique changes.
     pub fn unique(mut self) -> Self {
         self.unique = true;
+        self
+    }
+
+    /// Use text-edit branching: a new edit after undo discards the old redo
+    /// branch and starts a separate undo group. Navigation history keeps its
+    /// existing behavior unless this option is explicitly selected.
+    pub fn invalidate_redo_on_push(mut self) -> Self {
+        self.invalidate_redo = true;
         self
     }
 
@@ -98,6 +108,10 @@ where
 
     /// Push a new change to the history.
     pub fn push(&mut self, item: I) {
+        if self.invalidate_redo && !self.redos.is_empty() {
+            self.redos.clear();
+            self.version += 1;
+        }
         let version = self.inc_version();
 
         if self.undos.len() >= self.max_undos {
@@ -251,6 +265,46 @@ mod tests {
         assert_eq!(changes[0].tab_index, 0);
 
         assert_eq!(history.undo().is_none(), true);
+    }
+
+    #[test]
+    fn text_branch_discards_stale_redo_and_preserves_prior_undo() {
+        let mut history: History<TabIndex> = History::new().invalidate_redo_on_push();
+        history.push(10.into());
+        history.push(20.into());
+        assert_eq!(history.undo().unwrap()[0].tab_index, 20);
+        // A branch within a typing group must not merge with the retained edit.
+        history.group_interval = Some(Duration::from_secs(60));
+        history.push(30.into());
+        assert!(history.redo().is_none());
+        let branch = history.undo().unwrap();
+        assert_eq!(branch.len(), 1);
+        assert_eq!(branch[0].tab_index, 30);
+        assert_eq!(history.undos().last().unwrap().tab_index, 10);
+        assert_eq!(history.redo().unwrap()[0].tab_index, 30);
+    }
+
+    #[test]
+    fn text_group_undo_redo_and_new_branch_remain_ordered() {
+        let mut history: History<TabIndex> = History::new()
+            .group_interval(Duration::from_secs(60))
+            .invalidate_redo_on_push();
+        history.push(10.into());
+        history.push(20.into());
+        let undone = history.undo().unwrap();
+        assert_eq!(
+            undone.iter().map(|item| item.tab_index).collect::<Vec<_>>(),
+            [20, 10]
+        );
+        let redone = history.redo().unwrap();
+        assert_eq!(
+            redone.iter().map(|item| item.tab_index).collect::<Vec<_>>(),
+            [10, 20]
+        );
+        history.undo().unwrap();
+        history.push(30.into());
+        assert!(history.redo().is_none());
+        assert_eq!(history.undo().unwrap()[0].tab_index, 30);
     }
 
     #[test]
