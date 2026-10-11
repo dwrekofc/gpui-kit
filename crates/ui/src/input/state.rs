@@ -257,6 +257,15 @@ impl LastLayout {
     }
 }
 
+/// One source-level input edit with UTF-16 coordinates.
+#[derive(Clone, Debug)]
+pub struct InputEdit {
+    pub range_utf16: Range<usize>,
+    pub text: String,
+}
+
+type InputTransform = dyn Fn(&str, Range<usize>, &str) -> Option<InputEdit>;
+
 /// InputState to keep editing state of the [`super::Input`].
 pub struct InputState {
     pub(super) focus_handle: FocusHandle,
@@ -293,6 +302,7 @@ pub struct InputState {
     pub(super) soft_wrap: bool,
     pub(super) pattern: Option<regex::Regex>,
     pub(super) validate: Option<Box<dyn Fn(&str, &mut Context<Self>) -> bool + 'static>>,
+    input_transform: Option<Box<InputTransform>>,
     pub(crate) scroll_handle: ScrollHandle,
     /// The deferred scroll offset to apply on next layout.
     pub(crate) deferred_scroll_offset: Option<Point<Pixels>>,
@@ -389,6 +399,7 @@ impl InputState {
             loading: false,
             pattern: None,
             validate: None,
+            input_transform: None,
             mode: InputMode::default(),
             last_layout: None,
             last_bounds: None,
@@ -414,6 +425,30 @@ impl InputState {
             _pending_update: false,
             inline_completion: InlineCompletion::default(),
         }
+    }
+
+    /// Adapt committed user input at its source boundary. The callback must
+    /// return valid UTF-16 ranges in the supplied source. Programmatic silent
+    /// replacements, undo/redo and marked composition bypass the adapter.
+    /// Default inputs retain their existing behavior.
+    pub fn transform_input(
+        mut self,
+        transform: impl Fn(&str, Range<usize>, &str) -> Option<InputEdit> + 'static,
+    ) -> Self {
+        self.input_transform = Some(Box::new(transform));
+        self
+    }
+
+    /// Apply an exact programmatic edit without running the user-input adapter.
+    /// It retains normal change history and notifications.
+    pub fn replace_range(
+        &mut self,
+        range_utf16: Range<usize>,
+        text: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.replace_text_in_range_silent(Some(range_utf16), text, window, cx);
     }
 
     /// Set Input to use multi line mode.
@@ -1968,6 +2003,24 @@ impl EntityInputHandler for InputState {
                 self.range_from_utf16(&range)
             }))
             .unwrap_or(self.selected_range.into());
+
+        let transformed =
+            if !self.silent_replace_text && !self.history.ignore && self.ime_marked_range.is_none()
+            {
+                self.input_transform.as_ref().and_then(|transform| {
+                    transform(
+                        &self.text.to_string(),
+                        self.range_to_utf16(&range),
+                        new_text,
+                    )
+                })
+            } else {
+                None
+            };
+        let (range, new_text) = match &transformed {
+            Some(edit) => (self.range_from_utf16(&edit.range_utf16), edit.text.as_str()),
+            None => (range, new_text),
+        };
 
         let old_text = self.text.clone();
         self.text.replace(range.clone(), new_text);
