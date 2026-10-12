@@ -5,7 +5,7 @@
 use anyhow::Result;
 use gpui::{
     Action, App, AppContext, Bounds, ClipboardItem, Context, Entity, EntityInputHandler,
-    EventEmitter, FocusHandle, Focusable, InteractiveElement as _, IntoElement, KeyBinding,
+    EventEmitter, FocusHandle, Focusable, Hsla, InteractiveElement as _, IntoElement, KeyBinding,
     KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement as _,
     Pixels, Point, Render, ScrollHandle, ScrollWheelEvent, SharedString, Styled as _, Subscription,
     Task, UTF16Selection, Window, actions, div, point, prelude::FluentBuilder as _, px,
@@ -312,6 +312,8 @@ pub struct InputState {
     /// The mask pattern for formatting the input text
     pub(crate) mask_pattern: MaskPattern,
     pub(super) placeholder: SharedString,
+    pub(super) text_color_override: Option<Hsla>,
+    pub(super) placeholder_color_override: Option<Hsla>,
 
     /// Popover
     diagnostic_popover: Option<Entity<DiagnosticPopover>>,
@@ -410,6 +412,8 @@ impl InputState {
             deferred_scroll_offset: None,
             preferred_column: None,
             placeholder: SharedString::default(),
+            text_color_override: None,
+            placeholder_color_override: None,
             mask_pattern: MaskPattern::default(),
             lsp: Lsp::default(),
             diagnostic_popover: None,

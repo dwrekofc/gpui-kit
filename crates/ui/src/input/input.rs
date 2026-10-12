@@ -1,6 +1,6 @@
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    AnyElement, App, DefiniteLength, Edges, EdgesRefinement, Entity, InteractiveElement as _,
+    AnyElement, App, DefiniteLength, Edges, EdgesRefinement, Entity, Hsla, InteractiveElement as _,
     IntoElement, IsZero, MouseButton, ParentElement as _, Rems, RenderOnce, StyleRefinement,
     Styled, Window, div, px, relative,
 };
@@ -34,6 +34,8 @@ pub struct Input {
     focus_bordered: bool,
     tab_index: isize,
     selected: bool,
+    text_color_override: Option<Hsla>,
+    placeholder_color_override: Option<Hsla>,
 }
 
 impl Sizable for Input {
@@ -72,11 +74,21 @@ impl Input {
             focus_bordered: true,
             tab_index: 0,
             selected: false,
+            text_color_override: None,
+            placeholder_color_override: None,
         }
     }
 
     pub fn prefix(mut self, prefix: impl IntoElement) -> Self {
         self.prefix = Some(prefix.into_any_element());
+        self
+    }
+
+    /// Override plain/masked text and placeholder colors for this control.
+    /// Omission preserves the theme defaults, including when reusing its state.
+    pub fn text_colors(mut self, foreground: Hsla, placeholder: Hsla) -> Self {
+        self.text_color_override = Some(foreground);
+        self.placeholder_color_override = Some(placeholder);
         self
     }
 
@@ -245,6 +257,8 @@ impl RenderOnce for Input {
         self.state.update(cx, |state, _| {
             state.disabled = self.disabled;
             state.size = self.size;
+            state.text_color_override = self.text_color_override;
+            state.placeholder_color_override = self.placeholder_color_override;
         });
 
         let state = self.state.read(cx);
