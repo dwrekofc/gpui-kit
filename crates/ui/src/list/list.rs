@@ -86,6 +86,7 @@ pub struct ListState<D: ListDelegate> {
     mouse_right_clicked_index: Option<IndexPath>,
     reset_on_cancel: bool,
     searchable: bool,
+    trim_search_query: bool,
     selectable: bool,
     _search_task: Task<()>,
     _load_more_task: Task<()>,
@@ -113,6 +114,7 @@ where
             selected_index: None,
             selectable: true,
             searchable: false,
+            trim_search_query: true,
             item_to_measure_index: IndexPath::default(),
             deferred_scroll_to_index: None,
             mouse_right_clicked_index: None,
@@ -129,6 +131,13 @@ where
     /// When `true`, there will be a search input at the top of the list.
     pub fn searchable(mut self, searchable: bool) -> Self {
         self.searchable = searchable;
+        self
+    }
+
+    /// Sets whether queries are trimmed before reaching the delegate.
+    /// Defaults to true; disable when whitespace is meaningful search input.
+    pub fn trim_search_query(mut self, trim: bool) -> Self {
+        self.trim_search_query = trim;
         self
     }
 
@@ -253,7 +262,11 @@ where
         match event {
             InputEvent::Change => {
                 let text = state.read(cx).value();
-                let text = text.trim().to_string();
+                let text = if self.trim_search_query {
+                    text.trim().to_string()
+                } else {
+                    text.to_string()
+                };
                 if Some(&text) == self.last_query.as_ref() {
                     return;
                 }
