@@ -13,9 +13,9 @@ use crate::{
 use crate::{Icon, IndexPath, Selectable, Sizable, StyledExt};
 use crate::{VirtualListScrollHandle, list::ListDelegate, v_virtual_list};
 use gpui::{
-    App, AvailableSpace, ClickEvent, Context, DefiniteLength, EdgesRefinement, EventEmitter,
-    ListSizingBehavior, RenderOnce, ScrollStrategy, SharedString, StatefulInteractiveElement,
-    StyleRefinement, Subscription, px, size,
+    AnyElement, App, AvailableSpace, ClickEvent, Context, DefiniteLength, EdgesRefinement,
+    EventEmitter, ListSizingBehavior, RenderOnce, ScrollStrategy, SharedString,
+    StatefulInteractiveElement, StyleRefinement, Subscription, px, size,
 };
 use gpui::{
     AppContext, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement, KeyBinding,
@@ -45,10 +45,13 @@ pub enum ListEvent {
     Cancel,
 }
 
+type SearchHeader = Box<dyn Fn(&Entity<InputState>, &mut Window, &mut App) -> AnyElement>;
+
 struct ListOptions {
     size: Size,
     scrollbar_visible: bool,
     search_placeholder: Option<SharedString>,
+    search_header: Option<SearchHeader>,
     max_height: Option<Length>,
     paddings: EdgesRefinement<DefiniteLength>,
 }
@@ -60,6 +63,7 @@ impl Default for ListOptions {
             scrollbar_visible: true,
             max_height: None,
             search_placeholder: None,
+            search_header: None,
             paddings: EdgesRefinement::default(),
         }
     }
@@ -620,7 +624,9 @@ where
             .relative()
             .overflow_hidden()
             .when_some(query_input, |this, input| {
-                this.child(
+                let header = if let Some(render_header) = &self.options.search_header {
+                    render_header(&input, window, cx)
+                } else {
                     div()
                         .map(|this| match self.options.size {
                             Size::Small => this.px_1p5(),
@@ -638,8 +644,10 @@ where
                                 .cleanable(true)
                                 .p_0()
                                 .appearance(false),
-                        ),
-                )
+                        )
+                        .into_any_element()
+                };
+                this.child(header)
             })
             .when(!loading, |this| {
                 this.on_action(cx.listener(Self::on_action_cancel))
@@ -695,6 +703,21 @@ where
     /// Sets the placeholder text for the search input.
     pub fn search_placeholder(mut self, placeholder: impl Into<SharedString>) -> Self {
         self.options.search_placeholder = Some(placeholder.into());
+        self
+    }
+
+    /// Render a custom search header using the list's existing input state.
+    ///
+    /// Render an `Input` bound to the supplied state to retain search, focus,
+    /// and keyboard behavior. Omitting this builder keeps the default header.
+    pub fn search_header<F, E>(mut self, render: F) -> Self
+    where
+        F: Fn(&Entity<InputState>, &mut Window, &mut App) -> E + 'static,
+        E: IntoElement,
+    {
+        self.options.search_header = Some(Box::new(move |input, window, cx| {
+            render(input, window, cx).into_any_element()
+        }));
         self
     }
 }
